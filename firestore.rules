@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // --- Helpers ---
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function isOwner(userId) { 
+      return isSignedIn() && request.auth.uid == userId; 
+    }
+    
+    function isAdmin() { 
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)); 
+    }
+    
+    function isSuperAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'superadmin';
+    }
+
+    // --- USERS COLLECTION (FIXED) ---
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // --- ADMINS COLLECTION (FIXED) ---
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == adminId;
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // --- JOBS COLLECTION ---
+    match /jobs/{jobId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidJob(request.resource.data);
+      allow update: if isAdmin() && isValidJobUpdate();
+      allow delete: if isAdmin();
+    }
+
+    function isValidJob(data) {
+      return data.keys().hasAll(['title', 'description', 'status', 'createdAt', 'createdBy'])
+        && data.title is string && data.title.size() <= 200
+        && data.description is string && data.description.size() <= 5000
+        && data.status in ['open', 'closed', 'draft']
+        && data.createdBy == request.auth.uid;
+    }
+
+    function isValidJobUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'title', 'description']);
+    }
+
+    // --- CANDIDATES COLLECTION ---
+    match /candidates/{candidateId} {
+      allow read: if isOwner(candidateId) || isAdmin();
+      allow write: if isOwner(candidateId);
+    }
+
+    // --- APPLICATIONS COLLECTION (FIXED) ---
+    match /applications/{applicationId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.candidateId == request.auth.uid);
+      allow create: if isSignedIn() 
+        && request.resource.data.candidateId == request.auth.uid
+        && isValidApplication(request.resource.data);
+      allow update: if isAdmin() || (isSignedIn() && resource.data.candidateId == request.auth.uid);
+    }
+
+    function isValidApplication(data) {
+      return data.keys().hasAll(['jobId', 'candidateId', 'status', 'appliedAt'])
+        && data.jobId is string 
+        && data.candidateId is string
+        && data.status == 'pending'
+        && data.appliedAt == request.time;
+    }
+
+    // --- ANALYTICS ---
+    match /analytics/{document} {
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin();
+    }
+  }
+}

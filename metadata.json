@@ -1,0 +1,6 @@
+{
+  "name": "SmartHire AI",
+  "description": "An intelligent recruitment platform using AI to parse resumes, rank candidates by semantic matching, and provide HR analytics with bias detection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
